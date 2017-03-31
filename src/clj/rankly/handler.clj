@@ -1,30 +1,30 @@
 (ns rankly.handler
-  (:require [compojure.core :refer [GET defroutes]]
+  (:require [compojure.core :refer [GET POST defroutes]]
             [compojure.route :refer [not-found resources]]
+            [ring.util.json-response :as jr]
             [hiccup.page :refer [include-js include-css html5]]
             [rankly.middleware :refer [wrap-middleware]]
             [config.core :refer [env]]
             [datomic.api :as d]
-            [relative.trueskill :as ts]
+            [relative.elo :as elo]
             [bigml.sampling.simple :as simple]
             [clojure.algo.generic.functor :as f]
             [relative.rating :as r]))
 
 (def conn (d/connect "datomic:dev://localhost:4334/rankly"))
 
-(def tse (ts/trueskill-engine))
-
-(defn get-trueskills [qres]
-  (->> (:ranking/results qres)
-       (reduce (fn [true-skills {{winning-id :db/id} :result/winning-element
-                                 {losing-id :db/id} :result/losing-element}]
-                 (let [[wts lts] (r/match tse
-                                          (get true-skills winning-id)
-                                          (get true-skills losing-id))]
-                   (merge true-skills {winning-id wts
-                                       losing-id lts})))
-               (into {} (map #(-> [(:db/id %) (r/player tse {:id (:db/id %)})])
-                             (:ranking/elements qres))))))
+(defn get-ratings [qres]
+  (let [eng (elo/elo-engine)]
+    (->> (:ranking/results qres)
+         (reduce (fn [ratings {{winning-id :db/id} :result/winning-element
+                                   {losing-id :db/id} :result/losing-element}]
+                   (let [[wts lts] (r/match eng
+                                            (get ratings winning-id)
+                                            (get ratings losing-id))]
+                     (merge ratings {winning-id wts
+                                         losing-id lts})))
+                 (into {} (map #(-> [(:db/id %) (r/player eng {:id (:db/id %)})])
+                               (:ranking/elements qres)))))))
 
 (defn get-matchup [ranking]
   (let [db (d/db conn)
@@ -32,38 +32,36 @@
                      '[{:ranking/elements [:db/id :element/name :element/image-url]
                         (limit :ranking/results nil) [:result/winning-element :result/losing-element]}]
                      ranking)
-        true-skills (get-trueskills qres)
+        ratings (get-ratings qres)
         {:keys [ranking/elements ranking/results]} qres
         first-weights (->> results
                            (mapcat #(map (comp :db/id second) %))
                            frequencies
                            (f/fmap #(/ 1 %))
-                           (merge (f/fmap (fn [a] 100) true-skills)))
+                           (merge (f/fmap (constantly 100) ratings)))
         first-element (first (simple/sample (map :db/id elements)
                                             :weigh first-weights))
         second-weights (f/fmap #(/ 1
                                    (+ 0.01
-                                      (Math/pow (- (:mean %)
-                                                   (get-in true-skills [first-element :mean]))
+                                      (Math/pow (- (:rating %)
+                                                   (get-in ratings [first-element :rating]))
                                                 2)))
-                               true-skills)
-        first-opponents (->> results
-                             (map #(map (comp :db/id second) %))
-                             (map #(into #{} %))
-                             (filter #(get % first-element))
-                             (map #(-> % (clojure.set/difference #{first-element}) first)))
-        first-never-matched (clojure.set/difference
-                             (->> elements (map :db/id) (remove #(= % first-element)) (into #{}))
-                             (->> first-opponents (into #{})))
-        second-poss (if (= 0 (count first-never-matched))
-                      (->> first-opponents
-                           frequencies
-                           (group-by last)
-                           (sort-by first)
-                           first
-                           last
-                           (map first))
-                      first-never-matched)
+                               ratings)
+        second-poss (->> results
+                         (map #(map (comp :db/id second) %))
+                         (map #(into #{} %))
+                         (filter #(get % first-element))
+                         (map #(-> % (clojure.set/difference #{first-element}) first))
+                         frequencies
+                         (merge (->> ratings
+                                     (remove (fn [[id _]] (= id first-element)))
+                                     (into {})
+                                     (f/fmap (constantly 0))))
+                         (group-by last)
+                         (sort-by first)
+                         first
+                         last
+                         (map first))
         second-element (first (simple/sample second-poss
                                              :weigh second-weights))]
     (filter #(get #{first-element second-element} (:db/id %)) elements)))
@@ -73,20 +71,24 @@
                       :ranking/results "newres"}
                      {:db/id "newres"
                       :result/losing-element loser
-                      :result/winning-element winner}]))
+                      :result/winning-element winner}])
+  {})
 
 (defn get-ranking [ranking]
   (let [db (d/db conn)
         qres (d/pull db
-                     '[{:ranking/elements [:db/id :element/name :element/image-url]
+                     '[:ranking/title
+                       {:ranking/elements [:db/id :element/name :element/image-url]
                         (limit :ranking/results nil) [:result/winning-element :result/losing-element]}]
                      ranking)
-        true-skills (get-trueskills qres)]
-    (->> qres
-         :ranking/elements
-         (map #(merge % {:rating (get-in true-skills [(:db/id %) :mean])
-                         :std-dev (get-in true-skills [(:db/id %) :std-dev])}))
-         (sort-by :rating))))
+        ratings (get-ratings qres)]
+    (-> qres
+        (dissoc :ranking/elements :ranking/results)
+        (merge {:ranking/rank (->> qres
+                                   :ranking/elements
+                                   (map #(merge % {:rating (get-in ratings [(:db/id %) :rating])}))
+                                   (sort-by :rating)
+                                   reverse)}))))
 
 (defn clear-results [ranking]
   (let [db (d/db conn)]
@@ -124,6 +126,12 @@
 
 (defroutes routes
   (GET "/" [] (loading-page))
+  (GET "/api/ranking/:id" [id] (jr/json-response (get-ranking (. Long parseLong id))))
+  (GET "/api/ranking/:id/matchup" [id] (jr/json-response (get-matchup (. Long parseLong id))))
+  (GET "/api/ranking/:id/matchup/:wid/:lid" [id wid lid]
+    (jr/json-response (report-matchup (. Long parseLong id)
+                                      (. Long parseLong wid)
+                                      (. Long parseLong lid))))
   (resources "/")
   (not-found (loading-page)))
 

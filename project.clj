@@ -11,6 +11,8 @@
                  [reagent-utils "0.2.1"]
                  [ring "1.5.1"]
                  [ring/ring-defaults "0.2.3"]
+                 [ring/ring-json "0.4.0"]
+                 [ring-json-response "0.2.0"]
                  [compojure "1.5.2"]
                  [hiccup "1.0.5"]
                  [yogthos/config "0.8"]
@@ -22,7 +24,8 @@
                  [com.datomic/datomic-pro "0.9.5561"]
                  [bigml/sampling "3.0"]
                  [relative "0.1.2"]
-                 [org.clojure/algo.generic "0.1.2"]]
+                 [org.clojure/algo.generic "0.1.2"]
+                 [cljs-ajax "0.5.8"]]
 
   :plugins [[lein-environ "1.0.2"]
             [lein-cljsbuild "1.1.1"]
