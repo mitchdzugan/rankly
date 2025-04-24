@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 import json
+import time
 
 def flat_map(f, xs):
     return list(y for ys in xs for y in f(ys))
@@ -46,14 +47,15 @@ def get_ep_data(soup):
         title = title[1: len(title) - 1]
         if title in TITLE_SUBSTITUIONS:
             title = TITLE_SUBSTITUIONS[title]
-        print(title)
+        print(["DATA", title])
+        time.sleep(1)
         image = get_episode_image(tds[1])
         return { "num": num, "title": title, "image": image }
     except:
         return { "num": 0, "title": "", "image": "" }
 
 def get_eps_data_from_column(column_soup):
-    return list(map(get_ep_data, [column_soup.select('tr')[0]]))
+    return list(map(get_ep_data, column_soup.select('tr')))
 
 def get_season_eps(num):
     url = f"https://lostpedia.fandom.com/wiki/Season_{num}"
@@ -70,15 +72,15 @@ def get_season_eps(num):
         label = f"<strong>{num}.{ep_num})</strong> {ep_title}"
         img_data = requests.get(ep_image).content
         img_path = f'/resources/LOST_Images/{num}_{ep_num}.jpg'
+        img_url = f'https://raw.githubusercontent.com/mitchdzugan/rankly/refs/heads/master{img_path}'
         with open(f'.{img_path}', 'wb') as f:
             f.write(img_data)
-        res.append({ "label": label, "image": ep_image })
+        res.append({ "label": label, "image": img_url })
+        print(["IMG", ep_title])
+        time.sleep(1)
     return res
 
-# eps = flat_map(get_season_eps, [1, 2, 3, 4, 5, 6])
-eps = flat_map(get_season_eps, [1])
+eps = flat_map(get_season_eps, [1, 2, 3, 4, 5, 6])
 
-print(eps)
-
-# with open('./LOST_EPS.json', 'w') as f:
-# f.write(json.dumps({ "name": "LOST Episodes", "elements": eps }) + "\n")
+with open('./LOST_EPS.json', 'w') as f:
+    f.write(json.dumps({ "name": "LOST Episodes", "elements": eps }) + "\n")

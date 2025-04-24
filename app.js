@@ -66,9 +66,10 @@ function App() {
         reader.readAsText(e.target.files[0]);
     };
 
-    if (!active) {
+    if (!active || !db.sources[active]) {
         return (
             <div>
+                <input onChange={handleFilePick} type="file" />
                 <label htmlFor="select-active">Select Rankly</label>
                 <select
                     onChange={(e) => setActive(e.target.value)}
@@ -136,9 +137,21 @@ function App() {
         })
     };
 
+    const deleteActive = () => {
+        const nextSources = { ...db.sources };
+        delete nextSources[active];
+        setDB({ ...db, sources: nextSources });
+    };
+
     // <input onChange={handleFilePick} type="file" />
     return (
         <div style={{ display: 'flex', flexDirection: 'column' }} >
+            <div style={{ display: 'flex', flexDirection: 'row' }} >
+                <input onChange={handleFilePick} type="file" />
+                <button className="button" onClick={deleteActive} >
+                    delete active
+                </button>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'row' }} >
                 <El el={elements[mu1]} onClick={() => reportMu(mu1, mu2)} />
                 <El el={elements[mu2]} onClick={() => reportMu(mu2, mu1)} />
