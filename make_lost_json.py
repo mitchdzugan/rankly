@@ -53,7 +53,7 @@ def get_ep_data(soup):
         return { "num": 0, "title": "", "image": "" }
 
 def get_eps_data_from_column(column_soup):
-    return list(map(get_ep_data, column_soup.select('tr')))
+    return list(map(get_ep_data, [column_soup.select('tr')[0]]))
 
 def get_season_eps(num):
     url = f"https://lostpedia.fandom.com/wiki/Season_{num}"
@@ -68,9 +68,17 @@ def get_season_eps(num):
         ep_title = ep["title"]
         ep_image = ep["image"]
         label = f"<strong>{num}.{ep_num})</strong> {ep_title}"
+        img_data = requests.get(ep_image).content
+        img_path = f'/resources/LOST_Images/{num}_{ep_num}.jpg'
+        with open(f'.{img_path}', 'wb') as f:
+            f.write(img_data)
         res.append({ "label": label, "image": ep_image })
     return res
 
-eps = flat_map(get_season_eps, [1, 2, 3, 4, 5, 6])
-with open('./LOST_EPS.json', 'w') as f:
-    f.write(json.dumps({ "name": "LOST Episodes", "elements": eps }) + "\n")
+# eps = flat_map(get_season_eps, [1, 2, 3, 4, 5, 6])
+eps = flat_map(get_season_eps, [1])
+
+print(eps)
+
+# with open('./LOST_EPS.json', 'w') as f:
+# f.write(json.dumps({ "name": "LOST Episodes", "elements": eps }) + "\n")
